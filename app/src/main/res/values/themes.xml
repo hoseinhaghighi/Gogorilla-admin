@@ -1,1 +1,7 @@
-
+<resources>
+<style name="Theme.GogorillaAdmin" parent="Theme.Material3.Dark.NoActionBar">
+    <item name="android:fontFamily">sans</item><item name="android:windowLightStatusBar">false</item>
+    <item name="android:statusBarColor">@color/gogo_black</item><item name="android:navigationBarColor">@color/gogo_black</item>
+    <item name="colorPrimary">@color/gogo_yellow</item><item name="colorSecondary">@color/gogo_yellow</item>
+</style>
+</resources>
