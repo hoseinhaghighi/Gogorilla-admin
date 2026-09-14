@@ -76,6 +76,48 @@ class MainActivity : AppCompatActivity() {
 
     private fun showDashboard() {
         val root = box()
+        val head = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL }        site = prefs.getString("site", "") ?: ""
+        key = prefs.getString("key", "") ?: ""
+        secret = prefs.getString("secret", "") ?: ""
+        if (site.isNotBlank() && key.isNotBlank() && secret.isNotBlank()) showDashboard() else showLogin()
+    }
+
+    private fun tv(text: String, size: Float = 16f): TextView = TextView(this).apply {
+        this.text = text; textSize = size; setTextColor(white); setPadding(14)
+    }
+    private fun button(text: String): Button = Button(this).apply {
+        this.text = text; setTextColor(Color.BLACK); setBackgroundColor(yellow); isAllCaps = false
+    }
+    private fun field(hint: String, value: String = ""): EditText = EditText(this).apply {
+        this.hint = hint; setText(value); setTextColor(white); setHintTextColor(Color.GRAY)
+        setPadding(14); backgroundTintList = android.content.res.ColorStateList.valueOf(yellow)
+    }
+    private fun box(): LinearLayout = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL; setBackgroundColor(black); setPadding(16); layoutDirection = View.LAYOUT_DIRECTION_RTL
+    }
+
+    private fun showLogin() {
+        val root = box(); root.gravity = Gravity.CENTER
+        root.addView(tv("GOGORILLA ADMIN", 28f).apply { setTextColor(yellow); gravity = Gravity.CENTER })
+        root.addView(tv("مدیریت فروشگاه", 16f).apply { gravity = Gravity.CENTER })
+        val s = field("آدرس سایت، مثال: https://gogorilla.ir", site)
+        val k = field("Consumer Key (ck_...)", key)
+        val sec = field("Consumer Secret (cs_...)", secret); sec.inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+        root.addView(s); root.addView(k); root.addView(sec)
+        val login = button("ورود به مدیریت")
+        root.addView(login)
+        login.setOnClickListener {
+            val a=s.text.toString().trim().trimEnd('/'); val b=k.text.toString().trim(); val c=sec.text.toString().trim()
+            if (a.isBlank() || b.isBlank() || c.isBlank()) { toast("همه فیلدها لازم است"); return@setOnClickListener }
+            site=a; key=b; secret=c
+            prefs.edit().putString("site",site).putString("key",key).putString("secret",secret).apply()
+            showDashboard()
+        }
+        setContentView(root)
+    }
+
+    private fun showDashboard() {
+        val root = box()
         val head = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL }
         head.addView(tv("Gogorilla Admin", 24f).apply { setTextColor(yellow) }, LinearLayout.LayoutParams(0,70,1f))
         val logout = button("خروج"); head.addView(logout, LinearLayout.LayoutParams(90,60)); root.addView(head)
