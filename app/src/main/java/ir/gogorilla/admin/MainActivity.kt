@@ -16,6 +16,7 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
+import java.net.URLEncoder
 import java.util.Base64
 
 class MainActivity : AppCompatActivity() {
@@ -46,9 +47,10 @@ class MainActivity : AppCompatActivity() {
     private fun button(text: String): Button = Button(this).apply {
         this.text = text; setTextColor(Color.BLACK); setBackgroundColor(yellow); isAllCaps = false
     }
-    private fun field(hint: String, value: String = ""): EditText = EditText(this).apply {
+    private fun field(hint: String, value: String = "", multiline: Boolean = false): EditText = EditText(this).apply {
         this.hint = hint; setText(value); setTextColor(white); setHintTextColor(Color.GRAY)
         setPadding(14); backgroundTintList = android.content.res.ColorStateList.valueOf(yellow)
+        if (multiline) { inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE; minLines = 3 }
     }
     private fun box(): LinearLayout = LinearLayout(this).apply {
         orientation = LinearLayout.VERTICAL; setBackgroundColor(black); setPadding(16); layoutDirection = View.LAYOUT_DIRECTION_RTL
@@ -98,6 +100,24 @@ class MainActivity : AppCompatActivity() {
         client.newCall(builder.build()).execute().use { r -> val body=r.body?.string().orEmpty(); if(!r.isSuccessful) throw Exception("HTTP ${r.code}: ${body.take(300)}"); return body }
     }
 
+    private fun resolveCategoryIds(namesCsv: String): JSONArray {
+        val result = JSONArray()
+        val names = namesCsv.split(",").map{it.trim()}.filter{it.isNotBlank()}
+        for (name in names) {
+            val encoded = URLEncoder.encode(name, "UTF-8")
+            val existingBody = request("products/categories?search=$encoded")
+            val existing = JSONArray(existingBody)
+            val id: Int = if (existing.length() > 0) {
+                existing.getJSONObject(0).optInt("id")
+            } else {
+                val createBody = request("products/categories", "POST", JSONObject().put("name", name).toString())
+                JSONObject(createBody).optInt("id")
+            }
+            result.put(JSONObject().put("id", id))
+        }
+        return result
+    }
+
     private fun loadProducts() {
         val c=content ?: return; c.removeAllViews(); c.addView(tv("محصولات",22f).apply{setTextColor(yellow)})
         val add=button("＋ افزودن محصول"); c.addView(add); add.setOnClickListener{ productDialog(null) }
@@ -121,19 +141,51 @@ class MainActivity : AppCompatActivity() {
     private fun productDialog(p: JSONObject?) {
         val layout=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(20);layoutDirection=View.LAYOUT_DIRECTION_RTL}
         val name=field("نام محصول",p?.optString("name") ?: "")
+        val description=field("توضیحات کامل",p?.optString("description") ?: "", true)
+        val shortDesc=field("توضیحات کوتاه",p?.optString("short_description") ?: "", true)
         val regular=field("قیمت",p?.optString("regular_price") ?: "")
         val sale=field("قیمت تخفیف",p?.optString("sale_price") ?: "")
         val stock=field("موجودی",if(p==null)"" else if(p.isNull("stock_quantity"))"" else p.optString("stock_quantity"))
         val sku=field("SKU",p?.optString("sku") ?: "")
-        val image=field("لینک تصویر محصول",if(p!=null && p.optJSONArray("images")?.length() ?: 0>0) p.optJSONArray("images")!!.optJSONObject(0)?.optString("src") ?: "" else "")
-        listOf(name,regular,sale,stock,sku,image).forEach{layout.addView(it)}
-        AlertDialog.Builder(this).setTitle(if(p==null)"افزودن محصول" else "ویرایش محصول").setView(layout)
+        val weight=field("وزن (کیلوگرم)",p?.optString("weight") ?: "")
+        val dims=p?.optJSONObject("dimensions")
+        val length=field("طول (سانتی‌متر)",dims?.optString("length") ?: "")
+        val width=field("عرض (سانتی‌متر)",dims?.optString("width") ?: "")
+        val height=field("ارتفاع (سانتی‌متر)",dims?.optString("height") ?: "")
+        val categoriesText = p?.optJSONArray("categories")?.let{catsArr-> (0 until catsArr.length()).joinToString(", "){catsArr.getJSONObject(it).optString("name")}} ?: ""
+        val category=field("دسته‌بندی (با کاما جدا کنید)",categoriesText)
+        val imagesText = p?.optJSONArray("images")?.let{imgArr-> (0 until imgArr.length()).joinToString(", "){imgArr.getJSONObject(it).optString("src")}} ?: ""
+        val images=field("لینک تصاویر (با کاما جدا کنید)",imagesText)
+        listOf(name,description,shortDesc,regular,sale,stock,sku,weight,length,width,height,category,images).forEach{layout.addView(it)}
+        val scrollWrap=ScrollView(this).apply{addView(layout)}
+        AlertDialog.Builder(this).setTitle(if(p==null)"افزودن محصول" else "ویرایش محصول").setView(scrollWrap)
             .setNegativeButton("انصراف",null).setPositiveButton("ذخیره",null).create().also{d->
                 d.setOnShowListener{d.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener{
-                    val data=JSONObject().put("name",name.text.toString()).put("regular_price",regular.text.toString()).put("sale_price",sale.text.toString()).put("sku",sku.text.toString())
-                    if(stock.text.toString().isNotBlank()) data.put("manage_stock",true).put("stock_quantity",stock.text.toString().toIntOrNull() ?: 0)
-                    if(image.text.toString().isNotBlank()) data.put("images",JSONArray().put(JSONObject().put("src",image.text.toString())))
-                    scope.launch{try{withContext(Dispatchers.IO){if(p==null)request("products","POST",data.toString()) else request("products/${p.optInt("id")}","PUT",data.toString())};d.dismiss();loadProducts();toast("ذخیره شد ✓")}catch(e:Exception){toast(e.message ?: "خطا")}}
+                    scope.launch{
+                        try{
+                            val catIds = withContext(Dispatchers.IO){ resolveCategoryIds(category.text.toString()) }
+                            val imgArr = JSONArray()
+                            images.text.toString().split(",").map{it.trim()}.filter{it.isNotBlank()}.forEach{ imgArr.put(JSONObject().put("src",it)) }
+                            val data=JSONObject()
+                                .put("name",name.text.toString())
+                                .put("description",description.text.toString())
+                                .put("short_description",shortDesc.text.toString())
+                                .put("regular_price",regular.text.toString())
+                                .put("sale_price",sale.text.toString())
+                                .put("sku",sku.text.toString())
+                            if(stock.text.toString().isNotBlank()) data.put("manage_stock",true).put("stock_quantity",stock.text.toString().toIntOrNull() ?: 0)
+                            if(imgArr.length()>0) data.put("images",imgArr)
+                            if(catIds.length()>0) data.put("categories",catIds)
+                            if(weight.text.toString().isNotBlank()) data.put("weight",weight.text.toString())
+                            val dimensions=JSONObject()
+                            if(length.text.toString().isNotBlank()) dimensions.put("length",length.text.toString())
+                            if(width.text.toString().isNotBlank()) dimensions.put("width",width.text.toString())
+                            if(height.text.toString().isNotBlank()) dimensions.put("height",height.text.toString())
+                            if(dimensions.length()>0) data.put("dimensions",dimensions)
+                            withContext(Dispatchers.IO){if(p==null)request("products","POST",data.toString()) else request("products/${p.optInt("id")}","PUT",data.toString())}
+                            d.dismiss();loadProducts();toast("ذخیره شد ✓")
+                        }catch(e:Exception){toast(e.message ?: "خطا")}
+                    }
                 }};d.show()
             }
     }
